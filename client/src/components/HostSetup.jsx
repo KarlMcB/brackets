@@ -29,16 +29,31 @@ export default function HostSetup({ onGameCreated }) {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const lines = evt.target.result
-        .split(/[\r\n,]+/)
-        .map(s => s.trim())
-        .filter(Boolean);
-      const merged = [...new Set([...items, ...lines])];
-      setItems(merged);
-      setError('');
+      loadCSVText(evt.target.result);
     };
     reader.readAsText(file);
     e.target.value = '';
+  }
+
+  function loadCSVText(text) {
+    const lines = text
+      .split(/[\r\n,]+/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    const merged = [...new Set([...items, ...lines])];
+    setItems(merged);
+    setError('');
+  }
+
+  async function loadPreset(filename, defaultTitle) {
+    try {
+      const res = await fetch(`/seeds/${filename}`);
+      const text = await res.text();
+      loadCSVText(text);
+      if (!title) setTitle(defaultTitle);
+    } catch {
+      setError('Failed to load preset');
+    }
   }
 
   function isPowerOfTwo(n) {
@@ -117,6 +132,9 @@ export default function HostSetup({ onGameCreated }) {
           📂 Upload CSV
           <input type="file" accept=".csv,.txt" onChange={handleCSV} style={{ display: 'none' }} />
         </label>
+        <button style={styles.csvLabel} onClick={() => loadPreset('disney-movies.csv', '64 Disney Movies')}>
+          🎬 Load Disney Movies
+        </button>
         <span style={styles.hint}>One item per line or comma-separated</span>
       </div>
 

@@ -24,7 +24,7 @@ function pointsForRound(round) {
 // Tally votes and return the winning item (most votes wins; itemA wins ties).
 function resolveMatch(match) {
   const tally = {};
-  for (const vote of Object.values(match.votes)) {
+  for (const vote of Object.values(match.votes || {})) {
     tally[vote] = (tally[vote] || 0) + 1;
   }
   const countA = tally[match.itemA] || 0;

@@ -5,6 +5,15 @@ const { resolveMatch, advanceRound, pointsForRound } = require('../gameLogic');
 const timers = {};
 
 function registerHandlers(io, socket) {
+  // Host joins room without being counted as a player
+  socket.on('spectate', async ({ gameId }) => {
+    const ref = db.collection('games').doc(gameId);
+    const doc = await ref.get();
+    if (!doc.exists) return socket.emit('error', 'Game not found');
+    socket.join(gameId);
+    socket.emit('spectating', { gameState: doc.data() });
+  });
+
   // Player joins a game room
   socket.on('join_game', async ({ gameId, playerName }) => {
     const ref = db.collection('games').doc(gameId);

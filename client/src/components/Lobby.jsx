@@ -10,6 +10,11 @@ export default function Lobby({ gameId, isHost, onMatchStarted }) {
   useEffect(() => {
     socket.connect();
 
+    // Host joins the socket room as a spectator so they receive player_joined events
+    if (isHost) {
+      socket.emit('spectate', { gameId });
+    }
+
     socket.on('player_joined', ({ name }) => {
       setPlayers(prev => [...prev, name]);
     });
@@ -25,7 +30,7 @@ export default function Lobby({ gameId, isHost, onMatchStarted }) {
       socket.off('match_started');
       socket.off('error');
     };
-  }, [onMatchStarted]);
+  }, [isHost, gameId, onMatchStarted]);
 
   function join() {
     if (!playerName.trim()) return setError('Enter your name');
@@ -61,7 +66,7 @@ export default function Lobby({ gameId, isHost, onMatchStarted }) {
         </div>
       ) : (
         <div style={styles.waitBox}>
-          <div style={styles.waiting}>⏳ Waiting for host to start...</div>
+          <div style={styles.waiting}>{isHost ? '👥 Waiting for players to join...' : '⏳ Waiting for host to start...'}</div>
 
           <div style={styles.shareBox}>
             <div style={styles.shareLabel}>Share this link with players:</div>

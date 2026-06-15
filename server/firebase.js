@@ -1,12 +1,16 @@
-const admin = require('firebase-admin');
+const admin = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
 
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL: process.env.FIREBASE_DATABASE_URL,
+const { initializeApp, cert } = admin;
+
+initializeApp({
+  credential: cert(serviceAccount),
 });
 
-const db = admin.firestore();
+console.log('Firebase initialized');
+const db = getFirestore();
+console.log('Firestore ready');
 
 module.exports = { db };

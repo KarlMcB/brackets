@@ -6,6 +6,7 @@ export default function Lobby({ gameId, isHost, onMatchStarted }) {
   const [joined, setJoined] = useState(isHost);
   const [players, setPlayers] = useState([]);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     socket.connect();
@@ -50,6 +51,28 @@ export default function Lobby({ gameId, isHost, onMatchStarted }) {
     socket.emit('start_game', { gameId });
   }
 
+  function copyLink() {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(shareUrl).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      });
+    } else {
+      // Fallback for browsers that don't support clipboard API
+      const el = document.createElement('textarea');
+      el.value = shareUrl;
+      el.style.position = 'fixed';
+      el.style.opacity = '0';
+      document.body.appendChild(el);
+      el.focus();
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }
+
   const shareUrl = `${window.location.origin}?join=${gameId}`;
 
   return (
@@ -78,8 +101,8 @@ export default function Lobby({ gameId, isHost, onMatchStarted }) {
           <div style={styles.shareBox}>
             <div style={styles.shareLabel}>Share this link with players:</div>
             <div style={styles.shareUrl}>{shareUrl}</div>
-            <button style={styles.btnSecondary} onClick={() => navigator.clipboard.writeText(shareUrl)}>
-              Copy Link
+            <button style={copied ? styles.btnCopied : styles.btnCopy} onClick={copyLink}>
+              {copied ? '✓ Copied!' : 'Copy Link'}
             </button>
           </div>
 
@@ -119,4 +142,6 @@ const styles = {
   playerItem: { padding: '8px 14px', borderBottom: '1px solid #f0f0f0' },
   btnPrimary: { padding: '14px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 10, fontSize: 16, fontWeight: 700, cursor: 'pointer' },
   btnSecondary: { padding: '8px 14px', background: '#e0e0e0', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, alignSelf: 'flex-start' },
+  btnCopy: { padding: '8px 14px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, alignSelf: 'flex-start' },
+  btnCopied: { padding: '8px 14px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, alignSelf: 'flex-start' },
 };

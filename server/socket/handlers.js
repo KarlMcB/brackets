@@ -1,24 +1,36 @@
 const { db } = require('../firebase');
 const { resolveMatch, advanceRound, pointsForRound } = require('../gameLogic');
 
-// Active timers keyed by gameId — kept in memory on the server
 const timers = {};
+
+// Firestore turns arrays into maps when you update nested fields with dot notation.
+// Always read-modify-write the full matches array to keep it as an array.
+async function getGame(gameId) {
+  const ref = db.collection('games').doc(gameId);
+  const doc = await ref.get();
+  if (!doc.exists) return null;
+  const game = doc.data();
+  // Heal Firestore map-to-array corruption if it happened
+  if (game.matches && !Array.isArray(game.matches)) {
+    game.matches = Object.values(game.matches);
+  }
+  return { ref, game };
+}
 
 function registerHandlers(io, socket) {
   // Host joins room without being counted as a player
   socket.on('spectate', async ({ gameId }) => {
-    const ref = db.collection('games').doc(gameId);
-    const doc = await ref.get();
-    if (!doc.exists) return socket.emit('error', 'Game not found');
+    const result = await getGame(gameId);
+    if (!result) return socket.emit('error', 'Game not found');
     socket.join(gameId);
-    socket.emit('spectating', { gameState: doc.data() });
+    socket.emit('spectating', { gameState: result.game });
   });
 
   // Player joins a game room
   socket.on('join_game', async ({ gameId, playerName }) => {
-    const ref = db.collection('games').doc(gameId);
-    const doc = await ref.get();
-    if (!doc.exists) return socket.emit('error', 'Game not found');
+    const result = await getGame(gameId);
+    if (!result) return socket.emit('error', 'Game not found');
+    const { ref } = result;
 
     const sessionToken = require('crypto').randomUUID();
     const player = { name: playerName, score: 0, sessionToken };
@@ -26,17 +38,16 @@ function registerHandlers(io, socket) {
     await ref.update({ [`players.${sessionToken}`]: player });
 
     socket.join(gameId);
-    socket.emit('joined', { sessionToken, gameState: doc.data() });
+    socket.emit('joined', { sessionToken, gameState: result.game });
     io.to(gameId).emit('player_joined', { name: playerName });
   });
 
   // Host starts the game
   socket.on('start_game', async ({ gameId }) => {
-    const ref = db.collection('games').doc(gameId);
-    const doc = await ref.get();
-    if (!doc.exists) return socket.emit('error', 'Game not found');
+    const result = await getGame(gameId);
+    if (!result) return socket.emit('error', 'Game not found');
+    const { ref, game } = result;
 
-    const game = doc.data();
     if (game.status !== 'lobby') return socket.emit('error', 'Game already started');
 
     await ref.update({ status: 'active' });
@@ -45,11 +56,10 @@ function registerHandlers(io, socket) {
 
   // Player submits a vote
   socket.on('vote', async ({ gameId, sessionToken, matchId, choice }) => {
-    const ref = db.collection('games').doc(gameId);
-    const doc = await ref.get();
-    if (!doc.exists) return socket.emit('error', 'Game not found');
+    const result = await getGame(gameId);
+    if (!result) return socket.emit('error', 'Game not found');
+    const { ref, game } = result;
 
-    const game = doc.data();
     const matchIndex = game.matches.findIndex(m => m.matchId === matchId);
     if (matchIndex === -1) return socket.emit('error', 'Match not found');
 
@@ -58,16 +68,17 @@ function registerHandlers(io, socket) {
     if (choice !== match.itemA && choice !== match.itemB)
       return socket.emit('error', 'Invalid choice');
 
-    // Record vote (one per player, last vote wins if they change)
-    await ref.update({ [`matches.${matchIndex}.votes.${sessionToken}`]: choice });
-    io.to(gameId).emit('vote_received', { matchId, playerCount: Object.keys(match.votes).length + 1 });
+    // Read-modify-write the full array to avoid Firestore map corruption
+    const matches = [...game.matches];
+    matches[matchIndex] = {
+      ...matches[matchIndex],
+      votes: { ...(matches[matchIndex].votes || {}), [sessionToken]: choice },
+    };
+    await ref.update({ matches });
 
-    // If all players have voted, resolve early
-    const updatedDoc = await ref.get();
-    const updatedGame = updatedDoc.data();
-    const updatedMatch = updatedGame.matches[matchIndex];
-    const playerCount = Object.keys(updatedGame.players).length;
-    const voteCount = Object.keys(updatedMatch.votes).length;
+    const voteCount = Object.keys(matches[matchIndex].votes).length;
+    const playerCount = Object.keys(game.players).length;
+    io.to(gameId).emit('vote_received', { matchId, playerCount: voteCount });
 
     if (voteCount >= playerCount) {
       clearTimer(gameId);
@@ -77,58 +88,61 @@ function registerHandlers(io, socket) {
 }
 
 async function startMatch(io, gameId, matchIndex) {
-  const ref = db.collection('games').doc(gameId);
-  const doc = await ref.get();
-  const game = doc.data();
+  const result = await getGame(gameId);
+  if (!result) return;
+  const { ref, game } = result;
   const match = game.matches[matchIndex];
 
   let deadline = null;
+  const matches = [...game.matches];
+
   if (game.timeLimitSeconds > 0) {
     deadline = Date.now() + game.timeLimitSeconds * 1000;
-    await ref.update({ [`matches.${matchIndex}.deadline`]: deadline });
+    matches[matchIndex] = { ...matches[matchIndex], deadline };
 
     timers[gameId] = setTimeout(async () => {
       await resolveCurrentMatch(io, gameId);
     }, game.timeLimitSeconds * 1000);
   }
 
-  await ref.update({ currentMatchIndex: matchIndex });
+  await ref.update({ matches, currentMatchIndex: matchIndex });
   io.to(gameId).emit('match_started', { match: { ...match, deadline } });
 }
 
 async function resolveCurrentMatch(io, gameId) {
-  const ref = db.collection('games').doc(gameId);
-  const doc = await ref.get();
-  const game = doc.data();
+  const result = await getGame(gameId);
+  if (!result) return;
+  const { ref, game } = result;
+
   const matchIndex = game.currentMatchIndex;
   const match = game.matches[matchIndex];
+  if (match.winner) return;
 
-  if (match.winner) return; // already resolved
-
-  const { resolveMatch } = require('../gameLogic');
   const winner = resolveMatch(match);
 
-  // Score players who voted for the winner
-  const scoreUpdates = {};
+  // Score players who voted correctly
+  const players = { ...game.players };
   for (const [token, vote] of Object.entries(match.votes || {})) {
-    if (vote === winner && game.players[token]) {
-      const pts = pointsForRound(match.round);
-      const current = game.players[token].score || 0;
-      scoreUpdates[`players.${token}.score`] = current + pts;
+    if (vote === winner && players[token]) {
+      players[token] = {
+        ...players[token],
+        score: (players[token].score || 0) + pointsForRound(match.round),
+      };
     }
   }
 
-  await ref.update({
-    [`matches.${matchIndex}.winner`]: winner,
-    ...scoreUpdates,
-  });
+  // Write winner into the matches array (read-modify-write)
+  const matches = [...game.matches];
+  matches[matchIndex] = { ...matches[matchIndex], winner };
+
+  await ref.update({ matches, players });
 
   io.to(gameId).emit('match_resolved', { matchId: match.matchId, winner });
 
-  // Check if this was the last match in the round
-  const updatedDoc = await ref.get();
-  const updatedGame = updatedDoc.data();
-  await advanceIfRoundComplete(io, gameId, updatedGame, match.round, matchIndex);
+  const updatedResult = await getGame(gameId);
+  if (updatedResult) {
+    await advanceIfRoundComplete(io, gameId, updatedResult.game, match.round, matchIndex);
+  }
 }
 
 async function advanceIfRoundComplete(io, gameId, game, round, resolvedIndex) {
@@ -137,7 +151,6 @@ async function advanceIfRoundComplete(io, gameId, game, round, resolvedIndex) {
   const allDone = roundMatches.every(m => m.winner !== null);
 
   if (!allDone) {
-    // Move to the next match in this round
     const nextIndex = resolvedIndex + 1;
     if (nextIndex < game.matches.length && game.matches[nextIndex].round === round) {
       await startMatch(io, gameId, nextIndex);
@@ -148,19 +161,15 @@ async function advanceIfRoundComplete(io, gameId, game, round, resolvedIndex) {
   const winners = roundMatches.map(m => m.winner).filter(w => !w.startsWith('BYE_'));
 
   if (winners.length === 1) {
-    // Tournament over
     await ref.update({ status: 'complete' });
-    const finalDoc = await ref.get();
-    const finalGame = finalDoc.data();
-    const leaderboard = Object.values(finalGame.players)
+    const finalResult = await getGame(gameId);
+    const leaderboard = Object.values(finalResult.game.players)
       .sort((a, b) => b.score - a.score)
       .map(({ name, score }) => ({ name, score }));
-
     io.to(gameId).emit('game_complete', { champion: winners[0], leaderboard });
     return;
   }
 
-  // Build next round and append to matches array
   const nextRound = round + 1;
   const nextMatches = advanceRound(winners, nextRound);
   const allMatches = [...game.matches, ...nextMatches];

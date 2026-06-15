@@ -80,6 +80,7 @@ export default function App() {
         match={currentMatch}
         sessionToken={sessionToken}
         gameId={gameId}
+        isHost={isHost}
         onMatchResolved={handleMatchResolved}
         onGameComplete={handleGameComplete}
       />

@@ -1,4 +1,6 @@
 // Seeds items into first-round matches. items.length must be a power of 2.
+// Votes are NOT stored on the match — they live in the game's voteMap (keyed by
+// matchId) so they can be written atomically without contending on this array.
 function buildBracket(items) {
   const matches = [];
   for (let i = 0; i < items.length; i += 2) {
@@ -9,7 +11,6 @@ function buildBracket(items) {
       itemA: items[i],
       itemB: items[i + 1],
       winner: null,
-      votes: {},
       deadline: null,
     });
   }
@@ -21,10 +22,11 @@ function pointsForRound(round) {
   return Math.pow(2, round - 1);
 }
 
-// Tally votes and return the winning item (most votes wins; itemA wins ties).
-function resolveMatch(match) {
+// Tally a votes map ({ token: choice }) and return the winning item.
+// Most votes wins; itemA wins ties (including zero votes).
+function resolveMatch(match, votes) {
   const tally = {};
-  for (const vote of Object.values(match.votes || {})) {
+  for (const vote of Object.values(votes || {})) {
     tally[vote] = (tally[vote] || 0) + 1;
   }
   const countA = tally[match.itemA] || 0;
@@ -43,7 +45,6 @@ function advanceRound(winners, nextRound) {
       itemA: winners[i],
       itemB: winners[i + 1],
       winner: null,
-      votes: {},
       deadline: null,
     });
   }

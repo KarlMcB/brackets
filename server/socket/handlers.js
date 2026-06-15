@@ -3,17 +3,18 @@ const { resolveMatch, advanceRound, pointsForRound } = require('../gameLogic');
 
 const timers = {};
 
-// Firestore turns arrays into maps when you update nested fields with dot notation.
-// Always read-modify-write the full matches array to keep it as an array.
+// Firestore stores matches as an array; if a stray dot-notation write ever turns
+// it into a map, normalize it back to an array.
+function asArray(matches) {
+  return Array.isArray(matches) ? matches : Object.values(matches || {});
+}
+
 async function getGame(gameId) {
   const ref = db.collection('games').doc(gameId);
   const doc = await ref.get();
   if (!doc.exists) return null;
   const game = doc.data();
-  // Heal Firestore map-to-array corruption if it happened
-  if (game.matches && !Array.isArray(game.matches)) {
-    game.matches = Object.values(game.matches);
-  }
+  game.matches = asArray(game.matches);
   return { ref, game };
 }
 
@@ -54,35 +55,39 @@ function registerHandlers(io, socket) {
     await startMatch(io, gameId, 0);
   });
 
-  // Player submits a vote
+  // Player submits a vote. Votes live in voteMap (matchId -> token -> choice) and
+  // are written with an atomic field update. Different players write different
+  // keys, so concurrent votes never contend — no transaction, no lost votes.
   socket.on('vote', async ({ gameId, sessionToken, matchId, choice }) => {
     const result = await getGame(gameId);
     if (!result) return socket.emit('error', 'Game not found');
     const { ref, game } = result;
 
-    const matchIndex = game.matches.findIndex(m => m.matchId === matchId);
-    if (matchIndex === -1) return socket.emit('error', 'Match not found');
-
-    const match = game.matches[matchIndex];
+    // Only joined players may vote — ignores host/spectators and stale tokens
+    if (!sessionToken || !game.players[sessionToken]) {
+      return socket.emit('error', 'Only joined players can vote');
+    }
+    const match = game.matches.find(m => m.matchId === matchId);
+    if (!match) return socket.emit('error', 'Match not found');
     if (match.winner) return socket.emit('error', 'Match already resolved');
     if (choice !== match.itemA && choice !== match.itemB)
       return socket.emit('error', 'Invalid choice');
 
-    // Read-modify-write the full array to avoid Firestore map corruption
-    const matches = [...game.matches];
-    matches[matchIndex] = {
-      ...matches[matchIndex],
-      votes: { ...(matches[matchIndex].votes || {}), [sessionToken]: choice },
-    };
-    await ref.update({ matches });
+    // Atomic single-field write — no read-modify-write, no contention
+    await ref.update({ [`voteMap.${matchId}.${sessionToken}`]: choice });
 
-    const voteCount = Object.keys(matches[matchIndex].votes).length;
-    const playerCount = Object.keys(game.players).length;
-    io.to(gameId).emit('vote_received', { matchId, playerCount: voteCount });
+    // Re-read to count votes; the last writer's read sees every committed vote
+    const fresh = await getGame(gameId);
+    const votes = (fresh.game.voteMap && fresh.game.voteMap[matchId]) || {};
+    const voteCount = Object.keys(votes).length;
+    const playerCount = Object.keys(fresh.game.players).length;
+    io.to(gameId).emit('vote_received', { matchId, votes: voteCount, total: playerCount });
 
-    if (voteCount >= playerCount) {
-      clearTimer(gameId);
-      await resolveCurrentMatch(io, gameId);
+    // With a time limit, the match stays open for the whole window (resolved by
+    // the server timer in startMatch) so everyone gets to vote. With no limit
+    // (0), there's no timer, so resolve once every joined player has voted.
+    if (fresh.game.timeLimitSeconds === 0 && voteCount >= playerCount) {
+      await resolveMatchById(io, gameId, matchId);
     }
   });
 }
@@ -101,7 +106,7 @@ async function startMatch(io, gameId, matchIndex) {
     matches[matchIndex] = { ...matches[matchIndex], deadline };
 
     timers[gameId] = setTimeout(async () => {
-      await resolveCurrentMatch(io, gameId);
+      await resolveMatchById(io, gameId, match.matchId);
     }, game.timeLimitSeconds * 1000);
   }
 
@@ -109,39 +114,52 @@ async function startMatch(io, gameId, matchIndex) {
   io.to(gameId).emit('match_started', { match: { ...match, deadline } });
 }
 
-async function resolveCurrentMatch(io, gameId) {
-  const result = await getGame(gameId);
-  if (!result) return;
-  const { ref, game } = result;
+// Resolve a SPECIFIC match by id, idempotently. Resolving by id (not by the
+// live currentMatchIndex) means a duplicate/stale trigger for an already-resolved
+// match is a harmless no-op — it can't accidentally resolve the next match.
+async function resolveMatchById(io, gameId, matchId) {
+  clearTimer(gameId); // cancel any pending timer so a match resolves only once
+  const ref = db.collection('games').doc(gameId);
 
-  const matchIndex = game.currentMatchIndex;
-  const match = game.matches[matchIndex];
-  if (match.winner) return;
+  let result;
+  try {
+    result = await db.runTransaction(async (tx) => {
+      const doc = await tx.get(ref);
+      if (!doc.exists) return null;
+      const game = doc.data();
+      const matches = asArray(game.matches);
+      const idx = matches.findIndex(m => m.matchId === matchId);
+      if (idx === -1) return null;
+      const match = matches[idx];
+      if (match.winner) return null; // already resolved — stale trigger, no-op
 
-  const winner = resolveMatch(match);
+      const votes = (game.voteMap && game.voteMap[matchId]) || {};
+      const winner = resolveMatch(match, votes);
 
-  // Score players who voted correctly
-  const players = { ...game.players };
-  for (const [token, vote] of Object.entries(match.votes || {})) {
-    if (vote === winner && players[token]) {
-      players[token] = {
-        ...players[token],
-        score: (players[token].score || 0) + pointsForRound(match.round),
-      };
-    }
+      const players = { ...game.players };
+      for (const [token, vote] of Object.entries(votes)) {
+        if (vote === winner && players[token]) {
+          players[token] = {
+            ...players[token],
+            score: (players[token].score || 0) + pointsForRound(match.round),
+          };
+        }
+      }
+
+      matches[idx] = { ...match, winner };
+      tx.update(ref, { matches, players });
+      return { winner, matchId, round: match.round, matchIndex: idx };
+    });
+  } catch {
+    return;
   }
+  if (!result) return;
 
-  // Write winner into the matches array (read-modify-write)
-  const matches = [...game.matches];
-  matches[matchIndex] = { ...matches[matchIndex], winner };
-
-  await ref.update({ matches, players });
-
-  io.to(gameId).emit('match_resolved', { matchId: match.matchId, winner });
+  io.to(gameId).emit('match_resolved', { matchId: result.matchId, winner: result.winner });
 
   const updatedResult = await getGame(gameId);
   if (updatedResult) {
-    await advanceIfRoundComplete(io, gameId, updatedResult.game, match.round, matchIndex);
+    await advanceIfRoundComplete(io, gameId, updatedResult.game, result.round, result.matchIndex);
   }
 }
 

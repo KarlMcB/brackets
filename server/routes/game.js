@@ -30,6 +30,7 @@ router.post('/', async (req, res) => {
     totalRounds: Math.log2(size),
     players: {},
     matches: firstRoundMatches,
+    voteMap: {},            // matchId -> { sessionToken: choice }
     createdAt: Date.now(),
   };
 

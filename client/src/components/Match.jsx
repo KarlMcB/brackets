@@ -1,18 +1,18 @@
 import { useState, useEffect } from 'react';
 import socket from '../socket';
 
-export default function Match({ match: initialMatch, sessionToken, gameId, onMatchResolved, onGameComplete }) {
+export default function Match({ match: initialMatch, sessionToken, gameId, isHost, onMatchResolved, onGameComplete }) {
   const [match, setMatch] = useState(initialMatch);
   const [voted, setVoted] = useState(null);
   const [winner, setWinner] = useState(null);
   const [timeLeft, setTimeLeft] = useState(null);
-  const [voteCount, setVoteCount] = useState(0);
+  const [tally, setTally] = useState({ votes: 0, total: 0 });
 
   useEffect(() => {
     setMatch(initialMatch);
     setVoted(null);
     setWinner(null);
-    setVoteCount(0);
+    setTally({ votes: 0, total: 0 });
 
     if (initialMatch.deadline) {
       const remaining = Math.max(0, Math.ceil((initialMatch.deadline - Date.now()) / 1000));
@@ -34,8 +34,8 @@ export default function Match({ match: initialMatch, sessionToken, gameId, onMat
   }, [timeLeft, match.matchId]);
 
   useEffect(() => {
-    socket.on('vote_received', ({ matchId, playerCount }) => {
-      if (matchId === match.matchId) setVoteCount(playerCount);
+    socket.on('vote_received', ({ matchId, votes, total }) => {
+      if (matchId === match.matchId) setTally({ votes, total });
     });
 
     socket.on('match_resolved', ({ matchId, winner: w }) => {
@@ -62,7 +62,7 @@ export default function Match({ match: initialMatch, sessionToken, gameId, onMat
   }, [match.matchId, onMatchResolved, onGameComplete]);
 
   function vote(choice) {
-    if (voted || winner) return;
+    if (isHost || voted || winner) return; // host spectates and cannot vote
     socket.emit('vote', { gameId, sessionToken, matchId: match.matchId, choice });
     setVoted(choice);
   }
@@ -72,7 +72,7 @@ export default function Match({ match: initialMatch, sessionToken, gameId, onMat
   return (
     <div style={styles.container}>
       <div style={styles.meta}>Round {match.round} · Match {match.position + 1}</div>
-      <h2 style={styles.heading}>Vote Now</h2>
+      <h2 style={styles.heading}>{isHost ? 'Live Voting' : 'Vote Now'}</h2>
 
       {timeLeft !== null && (
         <div style={{ ...styles.timer, color: timeLeft <= 10 ? '#e53e3e' : '#333' }}>
@@ -80,8 +80,8 @@ export default function Match({ match: initialMatch, sessionToken, gameId, onMat
         </div>
       )}
 
-      {voteCount > 0 && (
-        <div style={styles.voteCount}>{voteCount} vote{voteCount !== 1 ? 's' : ''} cast</div>
+      {tally.total > 0 && (
+        <div style={styles.voteCount}>{tally.votes} of {tally.total} voted</div>
       )}
 
       <div style={styles.matchup}>
@@ -98,9 +98,10 @@ export default function Match({ match: initialMatch, sessionToken, gameId, onMat
                 ...(isVoted ? styles.voted : {}),
                 ...(isWinner ? styles.winnerBtn : {}),
                 ...(isLoser ? styles.loserBtn : {}),
+                ...(isHost && !winner ? styles.spectate : {}),
               }}
               onClick={() => vote(item)}
-              disabled={!!voted || !!winner}
+              disabled={isHost || !!voted || !!winner}
             >
               {item}
               {isWinner && <span style={styles.winBadge}>✓ Winner</span>}
@@ -111,7 +112,8 @@ export default function Match({ match: initialMatch, sessionToken, gameId, onMat
       </div>
 
       {winner && <div style={styles.resolved}>🎉 <strong>{winner}</strong> advances!</div>}
-      {voted && !winner && <div style={styles.waiting}>Waiting for other votes...</div>}
+      {isHost && !winner && <div style={styles.waiting}>Watching live — players are voting…</div>}
+      {!isHost && voted && !winner && <div style={styles.waiting}>Waiting for other votes...</div>}
     </div>
   );
 }
@@ -129,6 +131,7 @@ const styles = {
     transition: 'all 0.15s', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
   },
   voted: { border: '2px solid #2563eb', background: '#eff6ff' },
+  spectate: { cursor: 'default', opacity: 0.85 },
   winnerBtn: { border: '2px solid #16a34a', background: '#f0fdf4' },
   loserBtn: { opacity: 0.4 },
   winBadge: { fontSize: 13, fontWeight: 600, color: '#16a34a' },

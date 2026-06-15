@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import socket from '../socket';
 
-export default function Lobby({ gameId, isHost, onMatchStarted }) {
+export default function Lobby({ gameId, isHost, onJoined, onMatchStarted }) {
   const [playerName, setPlayerName] = useState('');
   const [joined, setJoined] = useState(isHost);
   const [players, setPlayers] = useState([]);
@@ -22,8 +22,22 @@ export default function Lobby({ gameId, isHost, onMatchStarted }) {
       socket.on('connect', onConnect);
     }
 
+    const namesFrom = (gameState) =>
+      Object.values(gameState?.players || {}).map(p => p.name);
+
+    // Host receives the current roster when it starts spectating
+    socket.on('spectating', ({ gameState }) => {
+      setPlayers(namesFrom(gameState));
+    });
+
+    // Player: capture session token (so votes are tied to a player) and seed roster
+    socket.on('joined', ({ sessionToken, gameState }) => {
+      onJoined(sessionToken);
+      setPlayers(namesFrom(gameState));
+    });
+
     socket.on('player_joined', ({ name }) => {
-      setPlayers(prev => [...prev, name]);
+      setPlayers(prev => (prev.includes(name) ? prev : [...prev, name]));
     });
 
     socket.on('match_started', ({ match }) => {
@@ -34,17 +48,19 @@ export default function Lobby({ gameId, isHost, onMatchStarted }) {
 
     return () => {
       socket.off('connect', onConnect);
+      socket.off('spectating');
+      socket.off('joined');
       socket.off('player_joined');
       socket.off('match_started');
       socket.off('error');
     };
-  }, [isHost, gameId, onMatchStarted]);
+  }, [isHost, gameId, onJoined, onMatchStarted]);
 
   function join() {
     if (!playerName.trim()) return setError('Enter your name');
     socket.emit('join_game', { gameId, playerName: playerName.trim() });
     setJoined(true);
-    setPlayers(prev => [...prev, playerName.trim()]);
+    // Roster comes from the server ('joined' + 'player_joined'), so we don't add locally.
   }
 
   function startGame() {

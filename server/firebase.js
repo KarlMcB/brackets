@@ -1,8 +1,8 @@
 const admin = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 
-const raw = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64
-  ? Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf8')
+const raw = process.env.FB_CREDENTIALS
+  ? Buffer.from(process.env.FB_CREDENTIALS, 'base64').toString('utf8')
   : process.env.FIREBASE_SERVICE_ACCOUNT;
 const serviceAccount = JSON.parse(raw);
 

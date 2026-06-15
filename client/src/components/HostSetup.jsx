@@ -79,7 +79,7 @@ export default function HostSetup({ onGameCreated }) {
     }
 
     try {
-      const res = await fetch('http://localhost:3001/api/games', {
+      const res = await fetch('/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: title.trim(), items, timeLimitSeconds: Number(timeLimitSeconds) }),

@@ -79,7 +79,8 @@ export default function HostSetup({ onGameCreated }) {
     }
 
     try {
-      const res = await fetch('/api/games', {
+      const base = import.meta.env.VITE_API_URL || '';
+      const res = await fetch(`${base}/api/games`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: title.trim(), items, timeLimitSeconds: Number(timeLimitSeconds) }),

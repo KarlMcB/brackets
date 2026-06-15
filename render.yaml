@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: brackets-api
+    runtime: node
+    rootDir: .
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
+      - key: PORT
+        value: 3001

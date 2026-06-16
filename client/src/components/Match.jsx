@@ -17,7 +17,8 @@ export default function Match({ match: initialMatch, sessionToken, gameId, isHos
 
   useEffect(() => {
     setMatch(initialMatch);
-    setVoted(null);
+    // Restore our prior selection when resuming a match we'd already voted on
+    setVoted(initialMatch.yourVote ?? null);
     setWinner(null);
     setTally({ votes: 0, total: 0 });
     // Restore tiebreak state if we (re)joined a match already parked for a tie

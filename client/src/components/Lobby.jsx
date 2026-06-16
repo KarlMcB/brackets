@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import socket from '../socket';
 
-export default function Lobby({ gameId, isHost, hostToken, onJoined, onMatchStarted }) {
+export default function Lobby({ gameId, isHost, hostToken, resumeToken, onJoined, onResumeFailed, onMatchStarted }) {
   const [playerName, setPlayerName] = useState('');
   const [joined, setJoined] = useState(isHost);
+  const [resuming, setResuming] = useState(!isHost && !!resumeToken);
   const [players, setPlayers] = useState([]);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -13,6 +14,7 @@ export default function Lobby({ gameId, isHost, hostToken, onJoined, onMatchStar
 
     function onConnect() {
       if (isHost) socket.emit('spectate', { gameId });
+      else if (resumeToken) socket.emit('rejoin_game', { gameId, sessionToken: resumeToken });
     }
 
     // If already connected, join immediately; otherwise wait for connect event
@@ -36,6 +38,21 @@ export default function Lobby({ gameId, isHost, hostToken, onJoined, onMatchStar
       setPlayers(namesFrom(gameState));
     });
 
+    // Player reconnect succeeded — restore joined state with the same identity
+    socket.on('rejoined', ({ sessionToken, gameState }) => {
+      onJoined(sessionToken);
+      setPlayers(namesFrom(gameState));
+      setResuming(false);
+      setJoined(true);
+    });
+
+    // Saved token no longer valid (e.g. new game) — fall back to the join form
+    socket.on('rejoin_failed', () => {
+      setResuming(false);
+      setJoined(false);
+      onResumeFailed?.();
+    });
+
     socket.on('player_joined', ({ name }) => {
       setPlayers(prev => (prev.includes(name) ? prev : [...prev, name]));
     });
@@ -50,11 +67,13 @@ export default function Lobby({ gameId, isHost, hostToken, onJoined, onMatchStar
       socket.off('connect', onConnect);
       socket.off('spectating');
       socket.off('joined');
+      socket.off('rejoined');
+      socket.off('rejoin_failed');
       socket.off('player_joined');
       socket.off('match_started');
       socket.off('error');
     };
-  }, [isHost, gameId, onJoined, onMatchStarted]);
+  }, [isHost, gameId, resumeToken, onJoined, onResumeFailed, onMatchStarted]);
 
   function join() {
     if (!playerName.trim()) return setError('Enter your name');
@@ -96,7 +115,9 @@ export default function Lobby({ gameId, isHost, hostToken, onJoined, onMatchStar
       <h1 style={styles.heading}>🏆 Bracket Game</h1>
       <div style={styles.gameCode}>Game Code: <strong>{gameId}</strong></div>
 
-      {!joined ? (
+      {resuming ? (
+        <div style={styles.waiting}>🔄 Reconnecting you to the game…</div>
+      ) : !joined ? (
         <div style={styles.joinBox}>
           <label style={styles.label}>Your Name</label>
           <input

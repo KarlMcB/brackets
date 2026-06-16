@@ -30,14 +30,16 @@ function emitLeaderboard(io, gameId, game) {
   io.to(gameId).emit('leaderboard_update', { top: topFive(game) });
 }
 
-// Bring a reconnecting host back to the live match (the match carries its own
-// deadline and tiebreak flag, so the UI restores fully). The match view requests
-// standings itself on mount via get_leaderboard.
-function resyncSocket(socket, game) {
+// Bring a reconnecting client back to the live match (the match carries its own
+// deadline and tiebreak flag, so the UI restores fully). For a player we also
+// attach their existing vote so the match view restores their selection. The
+// match view requests standings itself on mount via get_leaderboard.
+function resyncSocket(socket, game, sessionToken) {
   if (game.status !== 'active') return;
   const match = game.matches[game.currentMatchIndex];
   if (!match || match.winner) return;
-  socket.emit('match_started', { match });
+  const yourVote = sessionToken ? (game.voteMap?.[match.matchId]?.[sessionToken] ?? null) : null;
+  socket.emit('match_started', { match: { ...match, yourVote } });
 }
 
 // Firestore stores matches as an array; if a stray dot-notation write ever turns
@@ -85,6 +87,20 @@ function registerHandlers(io, socket) {
     socket.join(gameId);
     socket.emit('joined', { sessionToken, gameState: sanitize(result.game) });
     io.to(gameId).emit('player_joined', { name: playerName });
+  });
+
+  // Player reconnects with an existing token (e.g. after a refresh): re-associate
+  // their identity (name + score preserved, no duplicate) and resync to the match.
+  socket.on('rejoin_game', async ({ gameId, sessionToken }) => {
+    const result = await getGame(gameId);
+    if (!result) return socket.emit('rejoin_failed');
+    const { game } = result;
+    const player = game.players[sessionToken];
+    if (!player) return socket.emit('rejoin_failed'); // unknown token — must join fresh
+
+    socket.join(gameId);
+    socket.emit('rejoined', { sessionToken, playerName: player.name, gameState: sanitize(game) });
+    resyncSocket(socket, game, sessionToken);
   });
 
   // Host starts the game

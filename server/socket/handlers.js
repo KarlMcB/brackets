@@ -83,12 +83,23 @@ function registerHandlers(io, socket) {
     const playerCount = Object.keys(fresh.game.players).length;
     io.to(gameId).emit('vote_received', { matchId, votes: voteCount, total: playerCount });
 
-    // With a time limit, the match stays open for the whole window (resolved by
-    // the server timer in startMatch) so everyone gets to vote. With no limit
-    // (0), there's no timer, so resolve once every joined player has voted.
-    if (fresh.game.timeLimitSeconds === 0 && voteCount >= playerCount) {
+    // As soon as everyone who has joined has voted, advance to the next matchup.
+    // When a time limit is set, the server timer in startMatch is the backstop
+    // for players who don't vote in time.
+    if (voteCount >= playerCount) {
       await resolveMatchById(io, gameId, matchId);
     }
+  });
+
+  // Host skips the current match: end it now with whatever votes exist and move on
+  socket.on('skip_match', async ({ gameId }) => {
+    const result = await getGame(gameId);
+    if (!result) return socket.emit('error', 'Game not found');
+    const { game } = result;
+    if (game.status !== 'active') return;
+    const match = game.matches[game.currentMatchIndex];
+    if (!match || match.winner) return; // nothing to skip
+    await resolveMatchById(io, gameId, match.matchId);
   });
 }
 

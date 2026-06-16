@@ -67,6 +67,10 @@ export default function Match({ match: initialMatch, sessionToken, gameId, isHos
     setVoted(choice);
   }
 
+  function skip() {
+    socket.emit('skip_match', { gameId });
+  }
+
   const isBye = (item) => item?.startsWith('BYE_');
 
   return (
@@ -112,7 +116,12 @@ export default function Match({ match: initialMatch, sessionToken, gameId, isHos
       </div>
 
       {winner && <div style={styles.resolved}>🎉 <strong>{winner}</strong> advances!</div>}
-      {isHost && !winner && <div style={styles.waiting}>Watching live — players are voting…</div>}
+      {isHost && !winner && (
+        <>
+          <div style={styles.waiting}>Watching live — players are voting…</div>
+          <button style={styles.skipBtn} onClick={skip}>⏭ Skip / end match now</button>
+        </>
+      )}
       {!isHost && voted && !winner && <div style={styles.waiting}>Waiting for other votes...</div>}
     </div>
   );
@@ -138,4 +147,5 @@ const styles = {
   votedBadge: { fontSize: 13, fontWeight: 600, color: '#2563eb' },
   resolved: { marginTop: 28, fontSize: 20, color: '#16a34a' },
   waiting: { marginTop: 20, color: '#888', fontSize: 15 },
+  skipBtn: { marginTop: 16, padding: '10px 20px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' },
 };

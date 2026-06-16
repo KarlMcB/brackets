@@ -315,7 +315,12 @@ async function advanceIfRoundComplete(io, gameId, game, round, resolvedIndex) {
     const leaderboard = Object.values(finalResult.game.players)
       .sort((a, b) => b.score - a.score)
       .map(({ name, score }) => ({ name, score }));
-    io.to(gameId).emit('game_complete', { champion: winners[0], leaderboard });
+    io.to(gameId).emit('game_complete', {
+      champion: winners[0],
+      leaderboard,
+      matches: finalResult.game.matches,        // full bracket for the results view
+      totalRounds: finalResult.game.totalRounds,
+    });
     return;
   }
 

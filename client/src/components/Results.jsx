@@ -1,4 +1,4 @@
-export default function Results({ champion, leaderboard, onPlayAgain }) {
+export default function Results({ champion, leaderboard, onNext, onPlayAgain }) {
   const medals = ['🥇', '🥈', '🥉'];
 
   return (
@@ -17,7 +17,10 @@ export default function Results({ champion, leaderboard, onPlayAgain }) {
         ))}
       </div>
 
-      <button style={styles.btn} onClick={onPlayAgain}>Play Again</button>
+      <div style={styles.actions}>
+        <button style={styles.btn} onClick={onNext}>Next: View Bracket →</button>
+        <button style={styles.btnGhost} onClick={onPlayAgain}>Play Again</button>
+      </div>
     </div>
   );
 }
@@ -33,5 +36,7 @@ const styles = {
   rank: { fontSize: 22, width: 36 },
   name: { flex: 1, textAlign: 'left', fontWeight: 600, fontSize: 16 },
   score: { fontWeight: 700, color: '#2563eb', fontSize: 16 },
+  actions: { display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' },
   btn: { padding: '14px 40px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 10, fontSize: 16, fontWeight: 700, cursor: 'pointer' },
+  btnGhost: { padding: '12px 32px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 10, fontSize: 15, fontWeight: 600, cursor: 'pointer' },
 };

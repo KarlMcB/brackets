@@ -3,6 +3,7 @@ import HostSetup from './components/HostSetup';
 import Lobby from './components/Lobby';
 import Match from './components/Match';
 import Results from './components/Results';
+import BracketView from './components/BracketView';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 const HOST_KEY = 'brackets:host';
@@ -41,6 +42,7 @@ export default function App() {
   const [currentMatch, setCurrentMatch] = useState(null);
   const [champion, setChampion] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
+  const [bracket, setBracket] = useState({ matches: [], totalRounds: 0 });
 
   // On load, restore the right context. Priority: an active player session (so a
   // refresh keeps your identity) → a ?join link → a host session.
@@ -125,11 +127,12 @@ export default function App() {
     }
   }
 
-  function handleGameComplete(champ, board) {
+  function handleGameComplete(champ, board, matches = [], totalRounds = 0) {
     clearHostSession();   // game is over — no session left to recover
     clearPlayerSession();
     setChampion(champ);
     setLeaderboard(board);
+    setBracket({ matches, totalRounds });
     setScreen('results');
   }
 
@@ -180,6 +183,24 @@ export default function App() {
   }
 
   if (screen === 'results') {
-    return <Results champion={champion} leaderboard={leaderboard} onPlayAgain={reset} />;
+    return (
+      <Results
+        champion={champion}
+        leaderboard={leaderboard}
+        onNext={() => setScreen('bracket')}
+        onPlayAgain={reset}
+      />
+    );
+  }
+
+  if (screen === 'bracket') {
+    return (
+      <BracketView
+        matches={bracket.matches}
+        totalRounds={bracket.totalRounds}
+        champion={champion}
+        onBack={() => setScreen('results')}
+      />
+    );
   }
 }

@@ -66,8 +66,8 @@ export default function Match({ match: initialMatch, sessionToken, gameId, isHos
 
     socket.on('leaderboard_update', ({ top }) => setLeaders(top));
 
-    socket.on('game_complete', ({ champion, leaderboard }) => {
-      onGameComplete(champion, leaderboard);
+    socket.on('game_complete', ({ champion, leaderboard, matches, totalRounds }) => {
+      onGameComplete(champion, leaderboard, matches, totalRounds);
     });
 
     return () => {

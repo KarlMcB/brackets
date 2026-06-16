@@ -17,13 +17,27 @@ function applyScores(players, votes, winner, round) {
   return updated;
 }
 
-// Broadcast the current top-5 standings to everyone in the game.
-function emitLeaderboard(io, gameId, game) {
-  const top = Object.values(game.players || {})
+// Compute the current top-5 standings.
+function topFive(game) {
+  return Object.values(game.players || {})
     .sort((a, b) => b.score - a.score)
     .slice(0, 5)
     .map(({ name, score }) => ({ name, score }));
-  io.to(gameId).emit('leaderboard_update', { top });
+}
+
+// Broadcast the current top-5 standings to everyone in the game.
+function emitLeaderboard(io, gameId, game) {
+  io.to(gameId).emit('leaderboard_update', { top: topFive(game) });
+}
+
+// Bring a reconnecting host back to the live match (the match carries its own
+// deadline and tiebreak flag, so the UI restores fully). The match view requests
+// standings itself on mount via get_leaderboard.
+function resyncSocket(socket, game) {
+  if (game.status !== 'active') return;
+  const match = game.matches[game.currentMatchIndex];
+  if (!match || match.winner) return;
+  socket.emit('match_started', { match });
 }
 
 // Firestore stores matches as an array; if a stray dot-notation write ever turns
@@ -54,6 +68,7 @@ function registerHandlers(io, socket) {
     if (!result) return socket.emit('error', 'Game not found');
     socket.join(gameId);
     socket.emit('spectating', { gameState: sanitize(result.game) });
+    resyncSocket(socket, result.game); // restore a reconnecting host to the live match
   });
 
   // Player joins a game room
@@ -138,6 +153,13 @@ function registerHandlers(io, socket) {
   // Host breaks a tie by choosing the winner of a parked match
   socket.on('break_tie', async ({ gameId, hostToken, matchId, choice }) => {
     await breakTie(io, gameId, matchId, choice, hostToken);
+  });
+
+  // Any client can request the current standings (the match view does this on mount)
+  socket.on('get_leaderboard', async ({ gameId }) => {
+    const result = await getGame(gameId);
+    if (!result) return;
+    socket.emit('leaderboard_update', { top: topFive(result.game) });
   });
 }
 

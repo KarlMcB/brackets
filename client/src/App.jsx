@@ -4,6 +4,20 @@ import Lobby from './components/Lobby';
 import Match from './components/Match';
 import Results from './components/Results';
 
+const API_BASE = import.meta.env.VITE_API_URL || '';
+const HOST_KEY = 'brackets:host';
+
+// Persist the host session so a refresh can recover control of the game.
+const saveHostSession = (gameId, hostToken) => {
+  try { localStorage.setItem(HOST_KEY, JSON.stringify({ gameId, hostToken })); } catch { /* ignore */ }
+};
+const loadHostSession = () => {
+  try { return JSON.parse(localStorage.getItem(HOST_KEY)); } catch { return null; }
+};
+const clearHostSession = () => {
+  try { localStorage.removeItem(HOST_KEY); } catch { /* ignore */ }
+};
+
 // Screens: setup | lobby | match | results
 export default function App() {
   const [screen, setScreen] = useState('setup');
@@ -15,7 +29,7 @@ export default function App() {
   const [champion, setChampion] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
 
-  // Handle ?join=GAMEID in the URL (player joining via shared link)
+  // On load: a ?join link makes you a player; otherwise try to recover a host session.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const joinId = params.get('join');
@@ -24,10 +38,28 @@ export default function App() {
       setIsHost(false);
       setScreen('lobby');
       window.history.replaceState({}, '', window.location.pathname);
+      return;
+    }
+
+    // Host refresh recovery: if the saved game still exists and isn't over, rejoin
+    // as host in the lobby. The server resyncs us to the live match if one's active.
+    const saved = loadHostSession();
+    if (saved?.gameId && saved?.hostToken) {
+      fetch(`${API_BASE}/api/games/${saved.gameId}`)
+        .then(r => (r.ok ? r.json() : null))
+        .then(game => {
+          if (!game || game.status === 'complete') { clearHostSession(); return; }
+          setGameId(saved.gameId);
+          setHostToken(saved.hostToken);
+          setIsHost(true);
+          setScreen('lobby');
+        })
+        .catch(() => { /* offline — stay on setup */ });
     }
   }, []);
 
   function handleGameCreated(id, token) {
+    saveHostSession(id, token);
     setGameId(id);
     setHostToken(token);
     setIsHost(true);
@@ -46,12 +78,14 @@ export default function App() {
   }
 
   function handleGameComplete(champ, board) {
+    clearHostSession(); // game is over — nothing left to host
     setChampion(champ);
     setLeaderboard(board);
     setScreen('results');
   }
 
   function reset() {
+    clearHostSession();
     setScreen('setup');
     setGameId(null);
     setIsHost(false);

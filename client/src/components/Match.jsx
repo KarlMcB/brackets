@@ -10,12 +10,18 @@ export default function Match({ match: initialMatch, sessionToken, gameId, isHos
   const [tiebreak, setTiebreak] = useState(null);     // { itemA, itemB } when tied
   const [leaders, setLeaders] = useState([]);         // top-5 standings
 
+  // Pull current standings as soon as the match view appears (covers reconnects)
+  useEffect(() => {
+    socket.emit('get_leaderboard', { gameId });
+  }, [gameId]);
+
   useEffect(() => {
     setMatch(initialMatch);
     setVoted(null);
     setWinner(null);
     setTally({ votes: 0, total: 0 });
-    setTiebreak(null);
+    // Restore tiebreak state if we (re)joined a match already parked for a tie
+    setTiebreak(initialMatch.tiebreak ? { itemA: initialMatch.itemA, itemB: initialMatch.itemB } : null);
 
     if (initialMatch.deadline) {
       const remaining = Math.max(0, Math.ceil((initialMatch.deadline - Date.now()) / 1000));

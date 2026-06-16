@@ -22,16 +22,24 @@ function pointsForRound(round) {
   return Math.pow(2, round - 1);
 }
 
-// Tally a votes map ({ token: choice }) and return the winning item.
-// Most votes wins; itemA wins ties (including zero votes).
-function resolveMatch(match, votes) {
-  const tally = {};
+// Count votes for each side of a match.
+function tallyMatch(match, votes) {
+  let a = 0, b = 0;
   for (const vote of Object.values(votes || {})) {
-    tally[vote] = (tally[vote] || 0) + 1;
+    if (vote === match.itemA) a++;
+    else if (vote === match.itemB) b++;
   }
-  const countA = tally[match.itemA] || 0;
-  const countB = tally[match.itemB] || 0;
-  return countB > countA ? match.itemB : match.itemA;
+  return { a, b };
+}
+
+// Decide a match winner from its votes, or return null for a genuine tie that
+// the host must break. Byes always auto-resolve to the real item (never a tie).
+function decideWinner(match, votes) {
+  if (match.itemA.startsWith('BYE_')) return match.itemB;
+  if (match.itemB.startsWith('BYE_')) return match.itemA;
+  const { a, b } = tallyMatch(match, votes);
+  if (a === b) return null; // tie — needs the host
+  return a > b ? match.itemA : match.itemB;
 }
 
 // Build the next round's matches from the winners of the current round.
@@ -51,4 +59,4 @@ function advanceRound(winners, nextRound) {
   return matches;
 }
 
-module.exports = { buildBracket, pointsForRound, resolveMatch, advanceRound };
+module.exports = { buildBracket, pointsForRound, tallyMatch, decideWinner, advanceRound };

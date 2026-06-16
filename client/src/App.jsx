@@ -9,6 +9,7 @@ export default function App() {
   const [screen, setScreen] = useState('setup');
   const [gameId, setGameId] = useState(null);
   const [isHost, setIsHost] = useState(false);
+  const [hostToken, setHostToken] = useState(null);
   const [sessionToken, setSessionToken] = useState(null);
   const [currentMatch, setCurrentMatch] = useState(null);
   const [champion, setChampion] = useState(null);
@@ -26,8 +27,9 @@ export default function App() {
     }
   }, []);
 
-  function handleGameCreated(id) {
+  function handleGameCreated(id, token) {
     setGameId(id);
+    setHostToken(token);
     setIsHost(true);
     setScreen('lobby');
   }
@@ -53,6 +55,7 @@ export default function App() {
     setScreen('setup');
     setGameId(null);
     setIsHost(false);
+    setHostToken(null);
     setSessionToken(null);
     setCurrentMatch(null);
     setChampion(null);
@@ -68,6 +71,7 @@ export default function App() {
       <Lobby
         gameId={gameId}
         isHost={isHost}
+        hostToken={hostToken}
         onJoined={setSessionToken}
         onMatchStarted={handleMatchStarted}
       />
@@ -81,6 +85,7 @@ export default function App() {
         sessionToken={sessionToken}
         gameId={gameId}
         isHost={isHost}
+        hostToken={hostToken}
         onMatchResolved={handleMatchResolved}
         onGameComplete={handleGameComplete}
       />

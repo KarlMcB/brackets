@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import socket from '../socket';
 
-export default function Lobby({ gameId, isHost, onJoined, onMatchStarted }) {
+export default function Lobby({ gameId, isHost, hostToken, onJoined, onMatchStarted }) {
   const [playerName, setPlayerName] = useState('');
   const [joined, setJoined] = useState(isHost);
   const [players, setPlayers] = useState([]);
@@ -64,7 +64,7 @@ export default function Lobby({ gameId, isHost, onJoined, onMatchStarted }) {
   }
 
   function startGame() {
-    socket.emit('start_game', { gameId });
+    socket.emit('start_game', { gameId, hostToken });
   }
 
   function copyLink() {

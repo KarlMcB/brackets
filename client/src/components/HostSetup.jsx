@@ -86,7 +86,7 @@ export default function HostSetup({ onGameCreated }) {
         body: JSON.stringify({ title: title.trim(), items, timeLimitSeconds: Number(timeLimitSeconds) }),
       });
       const data = await res.json();
-      if (data.gameId) onGameCreated(data.gameId);
+      if (data.gameId) onGameCreated(data.gameId, data.hostToken);
       else setError(data.error || 'Failed to create game');
     } catch {
       setError('Could not reach server');

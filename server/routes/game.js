@@ -19,10 +19,12 @@ router.post('/', async (req, res) => {
   while (padded.length < size) padded.push(`BYE_${padded.length}`);
 
   const gameId = uuidv4().slice(0, 8).toUpperCase();
+  const hostToken = uuidv4();
   const firstRoundMatches = buildBracket(padded);
 
   const game = {
     gameId,
+    hostToken,             // secret returned only to the creator; gates host actions
     title,
     timeLimitSeconds: timeLimitSeconds || 0,
     status: 'lobby',       // lobby | active | complete
@@ -35,14 +37,15 @@ router.post('/', async (req, res) => {
   };
 
   await db.collection('games').doc(gameId).set(game);
-  res.json({ gameId });
+  res.json({ gameId, hostToken });
 });
 
 // GET /api/games/:gameId — fetch current game state
 router.get('/:gameId', async (req, res) => {
   const doc = await db.collection('games').doc(req.params.gameId).get();
   if (!doc.exists) return res.status(404).json({ error: 'Game not found' });
-  res.json(doc.data());
+  const { hostToken, ...safe } = doc.data();
+  res.json(safe);
 });
 
 function nextPowerOfTwo(n) {

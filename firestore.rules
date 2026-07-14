@@ -1,0 +1,26 @@
+rules_version = '2';
+
+// Security model for this app:
+//
+// Nothing reaches Firestore directly from a browser. The React client has no
+// Firebase SDK — it talks only to the Node/Express backend over REST and
+// Socket.io. That backend uses the Firebase Admin SDK with a service account,
+// and Admin SDK credentials BYPASS these rules entirely.
+//
+// So denying every client request costs no functionality and leaves no public
+// read/write surface. All authorization is enforced in the backend instead:
+//   - hostToken (issued at game creation, never sent to players) gates
+//     start_game / skip_match / break_tie
+//   - sessionToken identifies a player and gates voting
+//   - hostToken and voteMap are stripped from all client-facing game state
+//
+// If direct client access to Firestore is ever added, these rules must be
+// revisited — do not loosen them to "allow read, write: if true".
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
